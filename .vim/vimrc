@@ -4,13 +4,10 @@ filetype off
 let &t_Co=256
 
 set rtp+=~/.vim/bundle/Vundle.vim
-call vundle#begin()
+call vundle#begin("~/.vim/bundle")
 let g:vundle_default_git_proto='git'
 
-"set pythonthreedll=/usr/local/Cellar/python@3.10/3.10.4/Frameworks/Python.framework/Versions/3.10/Python
-"set pythonthreehome=/usr/local/Cellar/python@3.10/3.10.4/Frameworks/Python.framework/Versions/3.10/
-
-Plugin 'gmarik/Vundle.vim'
+Plugin 'VundleVim/Vundle.vim'
 
 "ui tweaks
 Plugin 'nanotech/jellybeans.vim'
@@ -55,7 +52,6 @@ Plugin 'quramy/tsuquyomi'
 
 "python
 Plugin 'davidhalter/jedi-vim'
-"Plugin 'nvie/vim-flake8'
 
 "completion
 Plugin 'Shougo/deoplete.nvim'
@@ -72,11 +68,13 @@ Plugin 'megaannum/scala_commenter'
 Plugin 'derekwyatt/vim-scala'
 
 "ui fanciness
-"Plugin 'mhinz/vim-startify'
 Plugin 'mbbill/undotree'
 Plugin 'preservim/nerdtree'
 
 Plugin 'preservim/tagbar'
+
+"ai nonsense
+Plugin 'github/copilot.vim'
 
 "keep this at bottom after plugin shit
 call vundle#end()
@@ -101,7 +99,6 @@ set nowrap        "line wrapping off
 set laststatus=2  "always show the statusline
 set cmdheight=2
 set encoding=utf-8
-"set statusline+=%F
 
 "behaviors
 syntax enable
@@ -114,9 +111,6 @@ set cf                 "enable error files & error jumping.
 set clipboard=unnamed
 set autowrite          "writes on make/shell commands
 set timeoutlen=350     "time to wait for a command (after leader for example)
-
-"set foldmethod=indent
-"set foldlevelstart=99  "remove folds
 
 set formatoptions=crql
 
@@ -162,17 +156,8 @@ set updatetime=100
 nnoremap <space> za
 vnoremap <space> zf
 
-
-"common typos and simplification
-"commanr W w
-"command Q q
-
 map <F1> <Esc>
 imap <F1> <Esc>
-
-""doc lookup easy to fat finger
-"nmap K k
-"vmap K k
 
 "easier line completion
 imap <C-l> <C-x><C-l>
@@ -183,7 +168,6 @@ vnoremap ; :
 
 "%% in command mode to print file path
 cnoremap %% <C-R>=expand('%:h').'/'<cr>
-
 
 
 "leader shit
@@ -245,12 +229,14 @@ vmap <Leader>t> :Tabularize /=>\zs<CR>
 "fugitive
 nmap <Leader>gc :Gcommit<CR>
 nmap <Leader>gw :Gwrite<CR>
-nmap <Leader>gs :Gstatus<CR>
+nmap <Leader>gs :Git<CR>
 nmap <Leader>gp :Git push<CR>
 nmap <Leader>gu :Git pull<CR>
 nmap <Leader>gd :Gdiff<CR>
 nmap <Leader>gx :wincmd h<CR>:q<CR>
 nmap <Leader>gb :Git blame<CR>
+nmap gdh :diffget //2<CR>
+nmap gdl :diffget //3<CR>
 
 
 "zoom window to full size
@@ -498,7 +484,3 @@ unlet! g:scommenter_file_copyright_list
 if has('mouse_sgr')
     set ttymouse=sgr
 endif
-
-"nmap <C-Left> gT
-"nmap <C-Right> gt 
-
