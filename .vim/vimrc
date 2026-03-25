@@ -54,7 +54,7 @@ Plugin 'quramy/tsuquyomi'
 Plugin 'davidhalter/jedi-vim'
 
 "completion
-Plugin 'Shougo/deoplete.nvim'
+"Plugin 'Shougo/deoplete.nvim'
 Plugin 'neoclide/coc.nvim'
 
 "uml stuff
@@ -82,7 +82,8 @@ filetype plugin indent on
 
 let mapleader=","
 
-let g:deoplete#enable_at_startup = 1
+" Disable deoplete.nvim (Neovim-specific) - using coc.nvim instead
+" let g:deoplete#enable_at_startup = 1
 
 set background=dark
 colorscheme jellybeans
@@ -384,10 +385,9 @@ command Todo noautocmd vimgrep /todo\|fixme/j ** | cw
 
 map <leader>? :Todo<CR>
 
-let g:jedi#use_splits_not_buffers = "left"
+let g:jedi#use_splits_not_buffers = "top"
 let g:jedi#popup_on_dot = 1
 let g:jedi#show_call_signatures = "2"
-
 
 "autocmd BufWritePre *.py :%s/\s\+$//e
 "autocmd BufWritePost *.py call Flake8()

@@ -88,3 +88,8 @@ ulimit -S -n 1024
 alias glg='git log --graph --stat'
 
 alias vd="vd --motd-url=None"
+
+export CONFLUENCE_BASE_URL="https://datavant.atlassian.net"
+export GDRIVE_ACCOUNT="thomas.lowrey@datavant.com"
+export JIRA_BASE_URL="https://datavant.atlassian.net"
+export JIRA_EMAIL="thomas.lowrey@datavant.com"

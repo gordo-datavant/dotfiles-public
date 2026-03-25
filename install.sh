@@ -15,4 +15,14 @@ ln -s .dotfiles/.tmux.conf ~/
 ln -s .dotfiles/.vim ~/
 ln -s .dotfiles/.zshrc ~/
 
+# Symlink agent-tools into ~/Bin/
+mkdir -p ~/Bin
+for script in ~/.dotfiles/agent-tools/*.sh; do
+    ln -sf "$script" ~/Bin/
+done
+
+# Symlink AGENTS.md as global Claude Code instructions
+mkdir -p ~/.claude
+ln -sf ~/.dotfiles/agent-tools/AGENTS.md ~/.claude/CLAUDE.md
+
 vim +BundleInstall! +qall
