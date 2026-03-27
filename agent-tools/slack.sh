@@ -2,9 +2,17 @@
 # fetch-slack.sh — Read-only Slack fetcher using browser session tokens
 set -euo pipefail
 
-# Browser fingerprint constants — update when Chrome version changes
-UA='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36'
-SEC_CH_UA='"Not:A-Brand";v="99", "Google Chrome";v="145", "Chromium";v="145"'
+# Auto-detect Chrome version and derive browser fingerprint
+CHROME_FULL=$(/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+')
+CHROME_MAJOR=${CHROME_FULL%%.*}
+UA="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${CHROME_FULL} Safari/537.36"
+# Derive GREASE brand per Chromium's GetGreasedUserAgentBrandVersion algorithm
+_GREASE_CHARS=(" " "(" ":" "-" "." "/" ")" ";" "=" "?" "_")
+_GREASE_VERS=("8" "99" "24")
+_GC1=${_GREASE_CHARS[$((CHROME_MAJOR % 11))]}
+_GC2=${_GREASE_CHARS[$(((CHROME_MAJOR + 1) % 11))]}
+_GV=${_GREASE_VERS[$((CHROME_MAJOR % 3))]}
+SEC_CH_UA="\"Chromium\";v=\"${CHROME_MAJOR}\", \"Not${_GC1}A${_GC2}Brand\";v=\"${_GV}\", \"Google Chrome\";v=\"${CHROME_MAJOR}\""
 PAGE_DELAY_MIN=0.8
 PAGE_DELAY_MAX=2.0
 
@@ -26,9 +34,18 @@ Options:
                         max: 200)
   --raw                 Output raw JSON instead of formatted text
   --setup               Extract credentials from Chrome and print export commands
+  --setup-pass          Like --setup, but opens Chrome first to refresh the
+                        session, then stores credentials in pass (GPG).
+                        Creates pass entries: slack/token, slack/cookie
   --update-creds        Read pasted cURL/headers from stdin, extract token & cookie,
                         print export commands. Usage: pbpaste | slack.sh --update-creds
+  --update-creds-pass   Like --update-creds, but stores credentials in pass.
+                        Usage: pbpaste | slack.sh --update-creds-pass
   -h, --help            Show this help message
+
+Automatic refresh:
+  When credentials are stored in pass and the session is expired,
+  any slack.sh command will prompt to refresh via Chrome.
 
 Environment variables (required):
   SLACK_TOKEN    Browser session token (xoxc-...)
@@ -50,7 +67,7 @@ EOF
 }
 
 setup_credentials() {
-  python3 << 'PYEOF'
+  _SLACK_UA="$UA" _SLACK_WORKSPACE="${SLACK_WORKSPACE:-}" python3 << 'PYEOF'
 import subprocess, sqlite3, tempfile, shutil, re, sys, os
 from hashlib import pbkdf2_hmac
 import urllib.request
@@ -119,7 +136,7 @@ for profile in profiles:
             print(f"  {profile}: cookie DB version {db_version[0]} (domain hash enabled)", file=sys.stderr)
 
         rows = conn.execute(
-            "SELECT encrypted_value FROM cookies "
+            "SELECT encrypted_value, expires_utc FROM cookies "
             "WHERE host_key LIKE '%slack.com' AND name = 'd' "
             "ORDER BY expires_utc DESC LIMIT 1"
         ).fetchall()
@@ -128,6 +145,7 @@ for profile in profiles:
         os.unlink(tmp)
     if rows:
         blob = rows[0][0]
+        expires_utc = rows[0][1]
         try:
             version = blob[:3]
             if blob.startswith(b"xoxd-"):
@@ -137,7 +155,9 @@ for profile in profiles:
             else:
                 raise ValueError(f"unsupported cookie version: {version!r}")
             if cookie_val.startswith("xoxd-"):
-                print(f"Found Slack cookie in Chrome ({profile})", file=sys.stderr)
+                # Chrome stores expires_utc as microseconds since 1601-01-01
+                cookie_expires_unix = int(expires_utc / 1_000_000) - 11644473600
+                print(f"Found Slack cookie in Chrome ({profile}), expires {__import__('datetime').datetime.fromtimestamp(cookie_expires_unix).isoformat()}", file=sys.stderr)
                 break
             else:
                 errors.append(f"{profile}: decrypted but got unexpected value (starts with {cookie_val[:10]!r}...)")
@@ -163,10 +183,15 @@ if not cookie_val:
 print("Fetching token from Slack...", file=sys.stderr)
 headers = {
     "Cookie": f"d={cookie_val}",
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36",
+    "User-Agent": os.environ.get("_SLACK_UA", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"),
 }
 token = None
-for url in ["https://slack.com/customize/emoji", "https://app.slack.com/"]:
+workspace = os.environ.get("_SLACK_WORKSPACE", "")
+urls = []
+if workspace:
+    urls.append(f"https://{workspace}.slack.com/customize/emoji")
+urls += ["https://slack.com/customize/emoji", "https://app.slack.com/"]
+for url in urls:
     try:
         req = urllib.request.Request(url, headers=headers)
         html = urllib.request.urlopen(req).read().decode("utf-8", errors="replace")
@@ -189,6 +214,7 @@ if not token:
 print("Done!", file=sys.stderr)
 print(f'export SLACK_TOKEN="{token}"')
 print(f'export SLACK_COOKIE="d={cookie_val}"')
+print(f'export SLACK_COOKIE_EXPIRES="{cookie_expires_unix}"')
 PYEOF
 }
 
@@ -239,6 +265,69 @@ print(f"Extracted: {', '.join(found)}", file=sys.stderr)
 PYEOF
 }
 
+store_to_pass() {
+  local name="$1" value="$2"
+  echo "$value" | pass insert -m -f "$name" >/dev/null
+  echo "  Stored $name in pass" >&2
+}
+
+save_exports_to_pass() {
+  local output="$1"
+  local token cookie expires
+  token=$(echo "$output" | sed -n 's/^export SLACK_TOKEN="\(.*\)"$/\1/p')
+  cookie=$(echo "$output" | sed -n 's/^export SLACK_COOKIE="\(.*\)"$/\1/p')
+  expires=$(echo "$output" | sed -n 's/^export SLACK_COOKIE_EXPIRES="\(.*\)"$/\1/p')
+
+  if [[ -z "$token" && -z "$cookie" ]]; then
+    echo "ERROR: No credentials extracted. Nothing stored." >&2
+    return 1
+  fi
+
+  [[ -n "$token" ]]   && store_to_pass "slack/token" "$token"
+  [[ -n "$cookie" ]]  && store_to_pass "slack/cookie" "$cookie"
+  [[ -n "$expires" ]] && store_to_pass "slack/expires" "$expires"
+
+  local stored=()
+  [[ -n "$token" ]]   && stored+=(slack/token)
+  [[ -n "$cookie" ]]  && stored+=(slack/cookie)
+  [[ -n "$expires" ]] && stored+=(slack/expires)
+  echo "Stored in pass: ${stored[*]}" >&2
+}
+
+pass_creds_stale() {
+  local pass_file="$HOME/.password-store/slack/token.gpg"
+  [[ ! -f "$pass_file" ]] && return 0
+  # Check cookie expiry from pass
+  local expires now
+  expires=$(pass show slack/expires 2>/dev/null)
+  now=$(date +%s)
+  [[ -n "$expires" ]] && (( now >= expires )) && return 0
+  # Check 12h mtime floor
+  local file_age max_age=43200
+  file_age=$(stat -f %m "$pass_file")
+  (( now - file_age > max_age )) && return 0
+  return 1
+}
+
+setup_credentials_pass() {
+  echo "Chrome ${CHROME_MAJOR} — sec-ch-ua: ${SEC_CH_UA}" >&2
+  echo "Opening Slack in Chrome to refresh session..." >&2
+  open -a "Google Chrome" "https://app.slack.com/client/E04HJQJPV08/C08JRKZGA69"
+  read -r -p "Press Enter when Slack has loaded..." < /dev/tty
+
+  local output
+  output=$(setup_credentials) || true
+  save_exports_to_pass "$output" || exit 1
+  echo "Restart your shell or run: source ~/.zshrc" >&2
+}
+
+update_credentials_pass() {
+  local output
+  output=$(update_credentials) || true
+  save_exports_to_pass "$output" || exit 1
+  echo "Restart your shell or run: source ~/.zshrc" >&2
+}
+
 # --- Parse arguments ---
 COUNT=30
 MAX_PAGES=5
@@ -249,8 +338,10 @@ INPUT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -h|--help)      usage 0 ;;
-    --setup)        setup_credentials; exit ;;
-    --update-creds) update_credentials; exit ;;
+    --setup)             setup_credentials; exit ;;
+    --setup-pass)        setup_credentials_pass; exit ;;
+    --update-creds)      update_credentials; exit ;;
+    --update-creds-pass) update_credentials_pass; exit ;;
     -n|--count)     COUNT="$2"; shift 2 ;;
     -p|--max-pages) MAX_PAGES="$2"; shift 2 ;;
     -s|--page-size) PAGE_SIZE="$2"; shift 2 ;;
@@ -270,8 +361,20 @@ if [[ -z "$INPUT" ]]; then
   usage 1
 fi
 
-TOKEN="${SLACK_TOKEN:?Set SLACK_TOKEN — see --help}"
-COOKIE="${SLACK_COOKIE:?Set SLACK_COOKIE — see --help}"
+TOKEN="${SLACK_TOKEN:-}"
+COOKIE="${SLACK_COOKIE:-}"
+
+# Proactive refresh: cookie expiry or 12h mtime, whichever comes first
+if [[ -f "$HOME/.password-store/slack/token.gpg" ]] && pass_creds_stale; then
+  echo "Slack credentials are stale or expiring. Refreshing..." >&2
+  setup_credentials_pass
+  TOKEN=$(pass show slack/token 2>/dev/null)
+  COOKIE=$(pass show slack/cookie 2>/dev/null)
+  export SLACK_TOKEN="$TOKEN" SLACK_COOKIE="$COOKIE"
+fi
+
+TOKEN="${TOKEN:?Set SLACK_TOKEN — see --help or run --setup-pass}"
+COOKIE="${COOKIE:?Set SLACK_COOKIE — see --help or run --setup-pass}"
 
 slack_api() {
   local method="$1"; shift
@@ -294,12 +397,9 @@ slack_api() {
     "$@"
 }
 
-# Verify token
-echo "Verifying token..." >&2
-AUTH=$(slack_api auth.test)
-USER=$(echo "$AUTH" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('user','FAILED: '+d.get('error','unknown')))" 2>/dev/null)
-echo "Authenticated as: $USER" >&2
-if [[ "$USER" == FAILED* ]]; then exit 1; fi
+# No auth.test preflight — it triggers bot detection with browser tokens.
+# The proactive pass_creds_stale check above handles refresh; if creds are
+# still bad, the first real API call will fail with a clear error.
 
 # --- Fetch messages ---
 if [[ "$INPUT" =~ ^https://.*slack\.com/archives/([A-Z0-9]+)/p([0-9]+) ]]; then

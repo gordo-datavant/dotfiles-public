@@ -65,8 +65,10 @@ Search and read Slack messages using browser session tokens.
 slack.sh "from:user keyword"
 slack.sh https://myco.slack.com/archives/CHANNEL_ID
 slack.sh https://myco.slack.com/archives/CHANNEL_ID/pTIMESTAMP
-slack.sh --setup                    # extract creds from Chrome
-slack.sh --update-creds             # extract creds from pasted cURL (stdin)
+slack.sh --setup                    # extract creds from Chrome (print exports)
+slack.sh --setup-pass               # extract creds from Chrome → store in pass
+slack.sh --update-creds             # extract creds from pasted cURL (print exports)
+slack.sh --update-creds-pass        # extract creds from pasted cURL → store in pass
 ```
 
 Options:
@@ -75,7 +77,8 @@ Options:
 - `-s, --page-size NUM` — messages per page for channel history (default: 200)
 - `--raw` — output raw JSON instead of formatted text
 
-**Required env:** `SLACK_TOKEN`, `SLACK_COOKIE`
+**Required env:** `SLACK_TOKEN`, `SLACK_COOKIE`, `SLACK_WORKSPACE`
+Credentials in pass auto-refresh on expired session.
 
 ## Git Workflow
 

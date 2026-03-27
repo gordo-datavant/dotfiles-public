@@ -352,6 +352,54 @@ transition_issue() {
     fi
 }
 
+view_issue() {
+    local issue_key="$1"
+
+    if [ -z "$issue_key" ]; then
+        echo "Usage: $0 view <ISSUE_KEY>"
+        exit 1
+    fi
+
+    local response
+    response=$(curl -s -w "\n%{http_code}" \
+        -u "${JIRA_EMAIL}:${JIRA_API_TOKEN}" \
+        "${JIRA_BASE_URL}/rest/api/2/issue/${issue_key}")
+
+    local http_code
+    http_code=$(echo "$response" | tail -1)
+    local body
+    body=$(echo "$response" | sed '$d')
+
+    if [ "$http_code" != "200" ]; then
+        echo "Error fetching issue (HTTP $http_code):" >&2
+        echo "$body" | jq '.' 2>/dev/null || echo "$body" >&2
+        exit 1
+    fi
+
+    echo "$body" | jq -r '
+        def trim: if . then gsub("^\\s+|\\s+$"; "") else empty end;
+        "Key:         \(.key)",
+        "Summary:     \(.fields.summary)",
+        "Status:      \(.fields.status.name)",
+        "Type:        \(.fields.issuetype.name)",
+        "Priority:    \(.fields.priority.name // "—")",
+        "Assignee:    \(.fields.assignee.displayName // "Unassigned")",
+        "Reporter:    \(.fields.reporter.displayName // "—")",
+        "Created:     \(.fields.created | split("T")[0])",
+        "Updated:     \(.fields.updated | split("T")[0])",
+        (if .fields.parent then "Parent:      \(.fields.parent.key) — \(.fields.parent.fields.summary)" else empty end),
+        (if (.fields.labels | length) > 0 then "Labels:      \(.fields.labels | join(", "))" else empty end),
+        (if (.fields.issuelinks | length) > 0 then "Links:", (.fields.issuelinks[] |
+            if .outwardIssue then "  \(.type.outward) \(.outwardIssue.key) — \(.outwardIssue.fields.summary)" else empty end,
+            if .inwardIssue then "  \(.type.inward) \(.inwardIssue.key) — \(.inwardIssue.fields.summary)" else empty end
+        ) else empty end),
+        (if (.fields.subtasks | length) > 0 then "Subtasks:", (.fields.subtasks[] |
+            "  \(.key) [\(.fields.status.name)] \(.fields.summary)"
+        ) else empty end),
+        (if .fields.description then "\n--- Description ---\n\(.fields.description)" else empty end)
+    '
+}
+
 case "${1:-}" in
     create)
         shift
@@ -391,11 +439,7 @@ case "${1:-}" in
         ;;
     view)
         shift
-        if [ -z "$1" ]; then
-            echo "Usage: $0 view <ISSUE_KEY>"
-            exit 1
-        fi
-        jira view "$1"
+        view_issue "$1"
         ;;
     "")
         echo "Usage:"
@@ -413,6 +457,6 @@ case "${1:-}" in
         ;;
     *)
         # Backwards compatible: treat bare argument as view
-        jira view "$1"
+        view_issue "$1"
         ;;
 esac

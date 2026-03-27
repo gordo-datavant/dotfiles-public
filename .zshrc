@@ -17,6 +17,7 @@ setopt AUTO_CD
 export ZSH_DISABLE_COMPFIX="true"
 source $ZSH/oh-my-zsh.sh
 
+export HOMEBREW_CASK_OPTS="--appdir=~/Applications"
 export PATH="/opt/homebrew/sbin:$PATH"
 export PATH=$HOME/.local/bin:$HOME/Bin:$PATH
 export PATH="/opt/homebrew/opt/python@3.13/bin:$PATH"
@@ -60,7 +61,7 @@ alias pp='python -m json.tool'
 alias pip_upgrade_all="(echo pip; pip freeze --local | awk 'BEGIN{FS=\"==\"}{print $1}') | xargs pip install -U"
 export PATH="~/.pyenv/shims:${PATH}"
 export PYENV_SHELL=zsh
-source /opt/homebrew/Cellar/pyenv/2.6.0/completions/pyenv.zsh
+source /opt/homebrew/Cellar/pyenv/2.6.26/completions/pyenv.zsh
 
 command pyenv rehash 2>/dev/null
 pyenv() {
@@ -93,3 +94,11 @@ export CONFLUENCE_BASE_URL="https://datavant.atlassian.net"
 export GDRIVE_ACCOUNT="thomas.lowrey@datavant.com"
 export JIRA_BASE_URL="https://datavant.atlassian.net"
 export JIRA_EMAIL="thomas.lowrey@datavant.com"
+[[ -z "$JIRA_API_TOKEN" ]] && export JIRA_API_TOKEN=$(pass show jira 2>/dev/null)
+export SLACK_WORKSPACE="datavant"
+[[ -z "$SLACK_TOKEN" ]]    && export SLACK_TOKEN=$(pass show slack/token 2>/dev/null)
+[[ -z "$SLACK_COOKIE" ]]   && export SLACK_COOKIE=$(pass show slack/cookie 2>/dev/null)
+
+# GPG + YubiKey
+export GPG_TTY=$(tty)
+export SSH_AUTH_SOCK=$(gpgconf --list-dirs agent-ssh-socket)
